@@ -6,7 +6,7 @@ client_count = 0
 server_count = 0
 
 HOST = "127.0.0.1"
-PORT = 5555
+PORT = int(os.environ.get("PORT", 5555))
 bridge = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
 bridge.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
 bridge.bind((HOST, PORT))
