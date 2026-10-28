@@ -6,7 +6,7 @@ connections = {}
 client_count = 0
 server_count = 0
 
-HOST = "0.0.0.0"  # Changed from 127.0.0.1 so Railway binds correctly to external traffic
+HOST = "0.0.0.0"  # Allows Railway to bind correctly to all external network traffic
 PORT = int(os.environ.get("PORT", 5555))
 
 bridge = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -15,53 +15,50 @@ bridge.bind((HOST, PORT))
 bridge.listen()
 print(f"Server is listening on: {HOST}, {PORT}")
 
-def forward_stream(source, destination, on_disconnect):
-    """Safely pipes raw data from one socket directly to another without stripping newlines."""
+def forward_stream(source, destination, on_disconnect, exit_trigger=False):
+    """Safely pipes raw data from one socket directly to another continuously."""
     try:
         while True:
             data = source.recv(4096)
             if not data:
                 break
             
-            # If server sends 'exit', forward it and terminate session
-            if b"exit" in data.lower():
-                try:
-                    destination.sendall(data)
-                except:
-                    pass
-                break
-                
+            # Forward the raw data immediately to preserve newlines
             destination.sendall(data)
+            
+            # Close the persistent shell session only if explicitly commanded
+            if exit_trigger and b"exit" in data.lower():
+                break
     except Exception:
         pass
     finally:
         on_disconnect()
 
 def sendMessage(conn, target):
-    """Launches parallel threads to pipe Server <-> Client simultaneously without blocking."""
+    """Launches parallel threads to pipe Server <-> Client continuously."""
     disconnect_event = threading.Event()
     
     def handle_disconnect():
         disconnect_event.set()
 
-    # Thread 1: Server -> Client
+    # Thread 1: Server -> Client (Monitors for 'exit' to terminate session)
     server_to_client = threading.Thread(
         target=forward_stream, 
-        args=(conn, target, handle_disconnect), 
+        args=(conn, target, handle_disconnect, True), 
         daemon=True
     )
     
-    # Thread 2: Client -> Server
+    # Thread 2: Client -> Server (Keeps stream channel open for infinite replies)
     client_to_server = threading.Thread(
         target=forward_stream, 
-        args=(target, conn, handle_disconnect), 
+        args=(target, conn, handle_disconnect, False), 
         daemon=True
     )
 
     server_to_client.start()
     client_to_server.start()
 
-    # Hold this function scope open until a connection closes
+    # This locks the code execution scope here so you can type endless commands
     disconnect_event.wait()
     print("Session closed between server and target.")
 
@@ -108,7 +105,6 @@ def handle_client(conn):
     global server_count
     try:
         while True:
-            # Use raw lookahead or split lines for configuration handshakes
             data = conn.recv(1029).decode().strip().lower()
             if not data:
                 break
@@ -118,7 +114,7 @@ def handle_client(conn):
                 identity = "client" + str(client_count)
                 connections[identity] = conn
                 print(f"Registered: {identity}")
-                return  # Break loop to preserve this socket for streaming context
+                return  # Stop the configuration handshake loop and preserve this socket session
 
             elif data == "server":
                 server_count += 1
@@ -126,7 +122,7 @@ def handle_client(conn):
                 connections[identity] = conn
                 print(f"Registered: {identity}")
                 
-                # Stay inside server loop to handle structural menus
+                # Stay inside server loop to handle core structural menus
                 while True:
                     server_data = conn.recv(1029).decode().strip().lower()
                     if not server_data:
