@@ -19,7 +19,7 @@ def forward_stream(source, destination, on_disconnect, exit_trigger=False):
     """Safely pipes raw data from one socket directly to another continuously."""
     try:
         while True:
-            data = source.recv(4096)
+            data = source.recv(65536)
             if not data:
                 break
             
